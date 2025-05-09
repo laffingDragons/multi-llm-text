@@ -14,6 +14,8 @@ A powerful platform that enables you to interact with multiple Large Language Mo
 - **Custom Model Support**: Especially for Hugging Face, use any model from their extensive library
 - **Modern UI**: Clean, responsive interface with intuitive controls and real-time feedback
 
+### [Live Demo](https://multi-llm-text.streamlit.app/)
+
 ## 📋 Table of Contents
 
 - [Installation](#-installation)
@@ -225,11 +227,14 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📸 Screenshots
 
-![Story Generation](path/to/story-screenshot.png)
+<img width="1904" alt="Screenshot 2025-05-09 at 12 40 08 PM" src="https://github.com/user-attachments/assets/61ec1d5e-ef68-4917-b741-0a1276ab91b6" />
+
 *The Story Generation tab allows you to create creative stories based on any title or topic*
 
-![Text Summarization](path/to/summary-screenshot.png)
+<img width="1920" alt="Screenshot 2025-05-09 at 12 41 17 PM" src="https://github.com/user-attachments/assets/e059508e-302b-47b7-80da-8f36e5b3b4b8" />
+
 *The Text Summarizer tab condenses long content into concise summaries*
 
-![Translation](path/to/translation-screenshot.png)
+<img width="1915" alt="Screenshot 2025-05-09 at 12 42 00 PM" src="https://github.com/user-attachments/assets/c65a0005-d512-4ba7-a568-b239b88c4d2a" />
+
 *The Translator tab converts text between multiple languages*
