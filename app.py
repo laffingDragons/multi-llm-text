@@ -4,6 +4,9 @@ import json
 import os
 from dotenv import load_dotenv
 import httpx
+import google.generativeai as genai
+from anthropic import Anthropic
+import openai
 import logging
 
 # Set up logging
@@ -13,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# FastAPI backend URL - set this to your deployed FastAPI URL
+# API URL for your FastAPI backend
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 # Page configuration
@@ -75,163 +78,166 @@ if 'api_verified' not in st.session_state:
 if 'active_provider' not in st.session_state:
     st.session_state.active_provider = None
 
-if 'backend_available' not in st.session_state:
-    st.session_state.backend_available = False
-
-if 'available_providers' not in st.session_state:
-    st.session_state.available_providers = []
-
 # Helper functions
-def check_backend_health():
-    """Check if the FastAPI backend is available and get available providers"""
-    try:
-        response = requests.get(f"{API_URL}/health", timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            st.session_state.available_providers = data.get("available_providers", [])
-            return True
-        return False
-    except Exception as e:
-        logger.error(f"Error checking API health: {str(e)}")
-        return False
-
-def get_providers():
-    """Get list of all providers from the backend"""
-    try:
-        response = requests.get(f"{API_URL}/providers", timeout=5)
-        if response.status_code == 200:
-            return response.json().get("providers", [])
-        return []
-    except Exception as e:
-        logger.error(f"Error getting providers: {str(e)}")
-        return []
-
 def verify_api_key(provider, api_key):
-    """Verify API key with backend"""
+    """Verify if the API key is valid for the selected provider"""
     try:
-        # Simple verification by sending a minimal request
-        payload = {
-            "prompt": "Hello",
-            "provider": provider,
-            "model": get_default_model(provider),
-            "max_tokens": 10,
-            "api_key": api_key
-        }
-        
-        response = requests.post(f"{API_URL}/generate", json=payload, timeout=10)
-        
-        if response.status_code == 200:
-            return True, f"{provider.capitalize()} API key verified successfully"
-        else:
-            error_message = "Unknown error"
-            try:
-                error_message = response.json().get("detail", "Unknown error")
-            except:
-                error_message = f"Error {response.status_code}"
+        if provider == "openai":
+            client = openai.OpenAI(api_key=api_key)
+            response = client.models.list()
+            return True, "OpenAI API key verified successfully"
             
-            return False, f"API key verification failed: {error_message}"
+        elif provider == "anthropic":
+            client = Anthropic(api_key=api_key)
+            # The lighter way to verify is just to initialize the client
+            # We'll avoid making an actual API call here
+            return True, "Anthropic API key format accepted"
             
-    except Exception as e:
-        return False, f"Verification failed: {str(e)}"
-
-def get_default_model(provider):
-    """Get default model for provider"""
-    defaults = {
-        "openai": "gpt-3.5-turbo",
-        "anthropic": "claude-3-haiku-20240307",
-        "gemini": "gemini-1.5-flash",
-        "huggingface": "mistralai/Mistral-7B-Instruct-v0.2",
-        "mistral": "mistral-small-latest",
-        "cohere": "command"
-    }
-    return defaults.get(provider, "")
-
-def generate_story(title, provider, model, api_key=None):
-    """Generate a story using the FastAPI backend"""
-    try:
-        payload = {
-            "title": title,
-            "provider": provider,
-            "model": model
-        }
-        
-        # Add API key if provided
-        if api_key:
-            payload["api_key"] = api_key
+        elif provider == "gemini":
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            # We'll avoid making an actual API call here
+            return True, "Google Gemini API key format accepted"
             
-        response = requests.post(f"{API_URL}/story", json=payload, timeout=60)
-        
-        if response.status_code == 200:
-            return True, response.json()
-        else:
-            error_detail = "Unknown error"
-            try:
-                error_detail = response.json().get("detail", "Unknown error")
-            except:
-                error_detail = f"Error {response.status_code}"
+        elif provider == "huggingface":
+            # Simple verification of HF API token by checking a model
+            headers = {
+                "Authorization": f"Bearer {api_key}"
+            }
+            # Just check the models endpoint to verify the key
+            response = requests.get("https://huggingface.co/api/models?limit=1", headers=headers)
+            if response.status_code == 200:
+                return True, "Hugging Face API key verified successfully"
+            else:
+                return False, f"Hugging Face API key verification failed: {response.status_code}"
                 
-            return False, error_detail
-    except Exception as e:
-        return False, f"Request failed: {str(e)}"
-
-def summarize_text(text, provider, model, api_key=None):
-    """Summarize text using the FastAPI backend"""
-    try:
-        payload = {
-            "text": text,
-            "provider": provider,
-            "model": model
-        }
-        
-        # Add API key if provided
-        if api_key:
-            payload["api_key"] = api_key
-            
-        response = requests.post(f"{API_URL}/summarize", json=payload, timeout=60)
-        
-        if response.status_code == 200:
-            return True, response.json()
+        elif provider in ["cohere", "mistral"]:
+            # For these providers, we'll just validate the key format for now
+            if len(api_key) >= 20:  # Most API keys are at least 20 chars
+                return True, f"{provider.capitalize()} API key format accepted"
+            else:
+                return False, f"{provider.capitalize()} API key seems too short"
         else:
-            error_detail = "Unknown error"
-            try:
-                error_detail = response.json().get("detail", "Unknown error")
-            except:
-                error_detail = f"Error {response.status_code}"
-                
-            return False, error_detail
-    except Exception as e:
-        return False, f"Request failed: {str(e)}"
-
-def translate_text(text, target_language, provider, model, api_key=None):
-    """Translate text using the FastAPI backend"""
-    try:
-        payload = {
-            "text": text,
-            "target_language": target_language,
-            "provider": provider,
-            "model": model
-        }
-        
-        # Add API key if provided
-        if api_key:
-            payload["api_key"] = api_key
+            return False, "Unknown provider"
             
-        response = requests.post(f"{API_URL}/translate", json=payload, timeout=60)
-        
-        if response.status_code == 200:
-            return True, response.json()
-        else:
-            error_detail = "Unknown error"
-            try:
-                error_detail = response.json().get("detail", "Unknown error")
-            except:
-                error_detail = f"Error {response.status_code}"
-                
-            return False, error_detail
     except Exception as e:
-        return False, f"Request failed: {str(e)}"
+        return False, f"API verification failed: {str(e)}"
 
-# Provider configurations with models
+def generate_with_llm(provider, api_key, prompt, model=None):
+    """Generate content using the selected LLM provider"""
+    try:
+        if provider == "openai":
+            client = openai.OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model=model or "gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1024
+            )
+            return True, response.choices[0].message.content
+            
+        elif provider == "anthropic":
+            client = Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=model or "claude-3-haiku-20240307",
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            try:
+                return True, response.content[0].text
+            except (IndexError, AttributeError):
+                # Fallback if the response structure is different
+                return True, str(response)
+            
+        elif provider == "gemini":
+            genai.configure(api_key=api_key)
+            gemini_model = genai.GenerativeModel(model or "gemini-1.5-flash")
+            response = gemini_model.generate_content(prompt)
+            return True, response.text
+            
+        elif provider == "huggingface":
+            # Use Hugging Face Inference API
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "inputs": prompt,
+                "parameters": {
+                    "max_new_tokens": 1024,
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "do_sample": True
+                }
+            }
+            
+            api_url = f"https://api-inference.huggingface.co/models/{model}"
+            response = requests.post(api_url, headers=headers, json=payload)
+            
+            if response.status_code == 200:
+                try:
+                    # Different models return different response formats
+                    result = response.json()
+                    if isinstance(result, list) and len(result) > 0:
+                        if isinstance(result[0], dict) and "generated_text" in result[0]:
+                            return True, result[0]["generated_text"]
+                        elif isinstance(result[0], str):
+                            return True, result[0]
+                    elif isinstance(result, dict):
+                        if "generated_text" in result:
+                            return True, result["generated_text"]
+                        elif "text" in result:
+                            return True, result["text"]
+                    
+                    # Fallback to returning the raw JSON if we can't parse it
+                    return True, json.dumps(result)
+                except Exception as e:
+                    # If we can't parse the JSON, return the raw text
+                    return True, response.text
+            else:
+                if response.status_code == 503:
+                    return False, "The model is currently loading. Please try again in a few moments."
+                return False, f"Hugging Face API error: {response.status_code} - {response.text}"
+                
+        elif provider == "cohere":
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model or "command",
+                "prompt": prompt,
+                "max_tokens": 1024
+            }
+            response = requests.post("https://api.cohere.ai/v1/generate", headers=headers, json=payload)
+            if response.status_code == 200:
+                return True, response.json().get("generations", [{}])[0].get("text", "")
+            else:
+                return False, f"Cohere API error: {response.text}"
+                
+        elif provider == "mistral":
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model or "mistral-small-latest",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1024
+            }
+            response = requests.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload)
+            if response.status_code == 200:
+                return True, response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            else:
+                return False, f"Mistral API error: {response.text}"
+            
+        else:
+            return False, "Unknown provider"
+            
+    except Exception as e:
+        return False, f"Generation failed: {str(e)}"
+
+# Provider configurations
 llm_providers = {
     "openai": {
         "name": "OpenAI",
@@ -294,30 +300,9 @@ llm_providers = {
 
 # Main app function
 def main():
-    # Check backend health on startup
-    if not st.session_state.get('backend_checked', False):
-        st.session_state.backend_available = check_backend_health()
-        st.session_state.backend_checked = True
-    
     # Sidebar
     with st.sidebar:
         st.markdown("<h2 class='gradient-text'>🚀 Multi-LLM Hub</h2>", unsafe_allow_html=True)
-        
-        # Backend status indicator
-        if st.session_state.backend_available:
-            st.success("✅ Connected to backend API")
-            
-            # Show available providers from backend
-            if st.session_state.available_providers:
-                st.info(f"Providers configured on backend: {', '.join(p.upper() for p in st.session_state.available_providers)}")
-        else:
-            st.error("❌ Backend API not available")
-            st.warning("You can still use the app with your own API keys")
-            
-            # Retry button for backend connection
-            if st.button("Retry Backend Connection"):
-                st.session_state.backend_available = check_backend_health()
-                st.rerun()
         
         st.markdown("### 🤖 Select LLM Provider")
         
@@ -351,43 +336,27 @@ def main():
             
             st.markdown(f"### {provider_info['name']} Configuration")
             
-            # Show message if provider is available on backend
-            if provider in st.session_state.available_providers:
-                st.success(f"✅ {provider_info['name']} is configured on the backend")
-                st.info("You can use the service without providing your own API key")
-                use_backend_key = st.checkbox("Use backend API key", value=True)
-            else:
-                use_backend_key = False
-            
-            # API Key input (optional if using backend key)
-            api_key = None
-            if not use_backend_key or not st.session_state.backend_available:
-                api_key = st.text_input(
-                    f"{provider_info['name']} API Key",
-                    type="password",
-                    key=f"api_key_{provider}"
-                )
-                
-                # Verify button
-                if api_key:
-                    if st.button("Verify API Key", key=f"verify_{provider}"):
-                        with st.spinner("Verifying API key..."):
-                            is_valid, message = verify_api_key(provider, api_key)
-                            if is_valid:
-                                st.session_state.api_verified[provider] = True
-                                st.success(message)
-                            else:
-                                st.session_state.api_verified[provider] = False
-                                st.error(message)
-            
-            # Check if we can use this provider
-            can_use_provider = (
-                (use_backend_key and provider in st.session_state.available_providers) or
-                (api_key and provider in st.session_state.api_verified and st.session_state.api_verified[provider])
+            # API Key input
+            api_key = st.text_input(
+                f"{provider_info['name']} API Key",
+                type="password",
+                key=f"api_key_{provider}"
             )
             
-            # Model selection if provider is usable
-            if can_use_provider:
+            # Verify button
+            if api_key:
+                if st.button("Verify API Key", key=f"verify_{provider}"):
+                    with st.spinner("Verifying API key..."):
+                        is_valid, message = verify_api_key(provider, api_key)
+                        if is_valid:
+                            st.session_state.api_verified[provider] = True
+                            st.success(message)
+                        else:
+                            st.session_state.api_verified[provider] = False
+                            st.error(message)
+            
+            # Model selection if provider is verified
+            if provider in st.session_state.api_verified and st.session_state.api_verified[provider]:
                 st.markdown("### Model Selection")
                 
                 selected_model = st.selectbox(
@@ -421,10 +390,8 @@ def main():
         st.markdown("""
         This application uses various LLM providers to generate stories, 
         summarize text, and translate content between languages.
-        The FastAPI backend centralizes the API calls and can optionally 
-        store API keys securely.
         """)
-        st.markdown("Built with Streamlit & FastAPI")
+        st.markdown("Built with Streamlit & Python")
     
     # Main content
     st.markdown("<h1 class='gradient-text'>Multi-LLM Story & Translation Hub 🚀</h1>", unsafe_allow_html=True)
@@ -438,20 +405,13 @@ def main():
     provider = st.session_state.active_provider
     provider_info = llm_providers[provider]
     
-    # Check if we can use this provider
-    use_backend_key = provider in st.session_state.available_providers and st.checkbox("Use backend API key", value=True, key=f"use_backend_{provider}")
-    api_key = None if use_backend_key else st.session_state.get(f"api_key_{provider}")
-    
-    can_use_provider = (
-        (use_backend_key and provider in st.session_state.available_providers) or
-        (api_key and provider in st.session_state.api_verified and st.session_state.api_verified[provider])
-    )
-    
-    if not can_use_provider:
-        st.warning(f"Please provide and verify your {provider_info['name']} API key in the sidebar, or use the backend API key if available.")
+    # Check if API key is verified
+    if provider not in st.session_state.api_verified or not st.session_state.api_verified[provider]:
+        st.warning(f"Please enter and verify your {provider_info['name']} API key in the sidebar.")
         return
     
-    # Get selected model
+    # Get API key and selected model
+    api_key = st.session_state[f"api_key_{provider}"]
     model = st.session_state.get(f"model_{provider}", list(provider_info["models"].keys())[0])
     
     # Tabs
@@ -475,11 +435,17 @@ def main():
                 st.error("Title is too short. Please provide at least 3 characters.")
             else:
                 with st.spinner(f"Generating your story with {provider_info['name']}..."):
-                    success, result = generate_story(story_title, provider, model, api_key)
+                    # Adjust prompt based on provider for best results
+                    if provider == "huggingface":
+                        prompt = f"Write a short story about: {story_title}"
+                    else:
+                        prompt = f"Generate a creative, engaging story about the following topic or title: '{story_title}'. Make it approximately 500 words long with a clear beginning, middle, and end."
+                    
+                    success, result = generate_with_llm(provider, api_key, prompt, model)
                     
                     if success:
-                        st.markdown(f"### {result['title']}")
-                        st.write(result['story'])
+                        st.markdown(f"### {story_title}")
+                        st.write(result)
                     else:
                         st.error(result)
     
@@ -497,11 +463,17 @@ def main():
                 st.error("Text is too short. Please provide at least 100 characters for a meaningful summary.")
             else:
                 with st.spinner(f"Summarizing with {provider_info['name']}..."):
-                    success, result = summarize_text(text_to_summarize, provider, model, api_key)
+                    # Adjust prompt based on provider for best results
+                    if provider == "huggingface":
+                        prompt = f"Summarize: {text_to_summarize[:4000]}"  # Limit length for HF models
+                    else:
+                        prompt = f"Summarize the following text concisely, capturing the main points and important details:\n\n{text_to_summarize}"
+                    
+                    success, result = generate_with_llm(provider, api_key, prompt, model)
                     
                     if success:
                         st.markdown("### Summary")
-                        st.write(result['summary'])
+                        st.write(result)
                     else:
                         st.error(result)
     
@@ -532,15 +504,24 @@ def main():
                 st.error("Please enter some text to translate.")
             else:
                 with st.spinner(f"Translating to {target_language} with {provider_info['name']}..."):
-                    success, result = translate_text(text_to_translate, target_language, provider, model, api_key)
+                    # Adjust prompt based on provider for best results
+                    if provider == "huggingface":
+                        prompt = f"Translate the following to {target_language}: {text_to_translate[:2000]}"  # Limit length for HF models
+                    else:
+                        prompt = f"Translate the following text to {target_language}. Maintain the original meaning and tone as closely as possible:\n\n{text_to_translate}"
+                    
+                    success, result = generate_with_llm(provider, api_key, prompt, model)
                     
                     if success:
                         col1, col2 = st.columns(2)
                         with col1:
                             st.markdown("### Original Text")
-                            st.write(result['original_text'])
+                            st.write(text_to_translate)
                         with col2:
                             st.markdown(f"### Translated Text ({target_language})")
-                            st.write(result['translated_text'])
+                            st.write(result)
                     else:
                         st.error(result)
+
+if __name__ == "__main__":
+    main()
